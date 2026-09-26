@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SARI Local Video Dubbing</title>
+<style>
+:root{color-scheme:dark;--bg:#090b12;--card:#111522;--line:#252b3d;--txt:#f5f7ff;--muted:#98a2b8;--accent:#8b5cf6;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#171229 0,#090b12 45%);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+.wrap{max-width:1050px;margin:auto;padding:18px}.card{background:rgba(17,21,34,.94);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 12px 40px #0005}
+h1{font-size:24px;margin:0 0 5px}.sub{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}@media(max-width:700px){.grid{grid-template-columns:1fr}}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}select,input,button{width:100%;border:1px solid var(--line);background:#0d111c;color:var(--txt);border-radius:12px;padding:11px;font:inherit}button{cursor:pointer;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:0;font-weight:700}button.secondary{background:#171c2b;border:1px solid var(--line)}button:disabled{opacity:.45;cursor:not-allowed}
+.drop{border:1px dashed #4b556d;border-radius:16px;padding:25px;text-align:center;cursor:pointer}.drop.drag{border-color:var(--accent);background:#17112a}.file{display:none}
+video{width:100%;max-height:480px;background:#000;border-radius:14px}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.row>*{flex:1}.stat{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}@media(max-width:700px){.stat{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:#0c101a;border:1px solid var(--line);padding:10px;border-radius:12px}.kpi b{display:block;font-size:18px}.kpi span{font-size:11px;color:var(--muted)}
+.progress{height:13px;background:#080b12;border-radius:99px;overflow:hidden;border:1px solid var(--line)}.bar{height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#06b6d4);transition:width .2s}
+.log{height:180px;overflow:auto;background:#080b12;border:1px solid var(--line);border-radius:12px;padding:10px;font:12px/1.6 ui-monospace,monospace;direction:ltr;text-align:left;white-space:pre-wrap}
+.ok{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill{display:inline-block;padding:4px 8px;border-radius:99px;background:#171c2b;color:var(--muted);font-size:11px}
+a.download{display:block;text-align:center;padding:12px;background:#0d6b3c;border-radius:12px;color:white;text-decoration:none;font-weight:700;margin-top:10px}
+.small{font-size:11px;color:var(--muted);line-height:1.6}.livebox{background:#0b1020;border:1px solid #2b3350;border-radius:14px;padding:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>🎙️ SARI — الدبلجة المحلية</h1>
+    <div class="sub">Whisper → ترجمة NLLB → TTS محلي → مزامنة → فيديو مدبلج. بدون API ومفتاح.</div>
+  </div>
+
+  <div class="card">
+    <div id="drop" class="drop">اضغط هنا لاختيار فيديو أو اسحبه هنا
+      <input id="file" class="file" type="file" accept="video/*,audio/*">
+      <div id="fname" class="small">لم يتم اختيار ملف</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div><label>لغة الكلام الأصلي</label>
+        <select id="src">
+          <option value="eng_Latn">English</option><option value="arb_Arab">العربية</option>
+          <option value="fra_Latn">Français</option><option value="spa_Latn">Español</option>
+          <option value="deu_Latn">Deutsch</option>
+        </select>
+      </div>
+      <div><label>لغة الدبلجة</label>
+        <select id="tgt">
+          <option value="arb_Arab">العربية</option><option value="eng_Latn">English</option>
+          <option value="fra_Latn">Français</option><option value="spa_Latn">Español</option>
+          <option value="deu_Latn">Deutsch</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:10px">
+      <div><label>تسريع GPU</label><select id="device"><option value="webgpu">WebGPU (الأسرع إن كان مدعومًا)</option><option value="wasm">WASM/CPU</option></select></div>
+      <div><label>حجم مقطع المعالجة</label><select id="chunk"><option value="12">12 ثانية — أسرع استجابة</option><option value="20" selected>20 ثانية — أدق</option><option value="30">30 ثانية — مقاطع أقل</option></select></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="fullBtn">▶ دبلجة كاملة + إخراج فيديو</button>
+      <button id="liveBtn" class="secondary">⚡ دبلجة لحظية</button>
+      <button id="stopBtn" class="secondary" disabled>■ إيقاف</button>
+    </div>
+    <div class="small" style="margin-top:8px">
+      ملاحظة: أول تشغيل ينزّل النماذج ويخزنها في Cache المتصفح؛ بعد ذلك تكون أسرع. النماذج المحلية ليست استنساخًا لصوت المتحدث الأصلي، بل أصوات TTS محلية، مع مزامنة زمنية.
+    </div>
+  </div>
+
+  <div class="card">
+    <video id="video" controls playsinline></video>
+    <div class="livebox" style="margin-top:10px">
+      <div class="row">
+        <span class="pill" id="stage">جاهز</span>
+        <span class="pill" id="eta">ETA: —</span>
+        <span class="pill" id="speed">سرعة: —</span>
+      </div>
+      <div class="progress" style="margin-top:10px"><div id="bar" class="bar"></div></div>
+      <div class="stat" style="margin-top:10px">
+        <div class="kpi"><b id="pct">0%</b><span>الإنجاز</span></div>
+        <div class="kpi"><b id="done">0/0</b><span>المقاطع</span></div>
+        <div class="kpi"><b id="elapsed">00:00</b><span>المنقضي</span></div>
+        <div class="kpi"><b id="remain">—</b><span>المتبقي</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>السجل</b>
+    <div id="log" class="log"></div>
+    <a id="download" class="download" style="display:none" download="dubbed-video.webm">⬇ تنزيل الفيديو المدبلج</a>
+  </div>
+</div>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/+esm";
+
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+const $ = id => document.getElementById(id);
+const video=$("video"), fileInput=$("file"), drop=$("drop");
+let file=null, url=null, stopped=false;
+let asr=null, translator=null, tts=null;
+let audioCtx=null, liveSource=null, liveProcessor=null, liveGain=null;
+let liveBuffer=[], liveSampleRate=0, liveBusy=false, liveStartedAt=0;
+let dubbedAudioURL=null;
+
+const TTS_MODELS={
+  arb_Arab:"Xenova/mms-tts-ara",
+  eng_Latn:"Xenova/mms-tts-eng",
+  fra_Latn:"Xenova/mms-tts-fra",
+  spa_Latn:"Xenova/mms-tts-spa",
+  deu_Latn:"Xenova/mms-tts-deu"
+};
+const NAMES={arb_Arab:"العربية",eng_Latn:"English",fra_Latn:"Français",spa_Latn:"Español",deu_Latn:"Deutsch"};
+
+function log(s,cls=""){const d=document.createElement("div");d.textContent=new Date().toLocaleTimeString()+"  "+s;if(cls)d.className=cls;$("log").appendChild(d);$("log").scrollTop=$("log").scrollHeight}
+function fmt(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return (h?h+":":"")+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0")}
+function setStage(s){$("stage").textContent=s}
+function setProgress(done,total,start,unitSeconds){
+  const p=total?done/total:0, elapsed=(performance.now()-start)/1000;
+  $("bar").style.width=(p*100).toFixed(1)+"%";$("pct").textContent=(p*100).toFixed(1)+"%";$("done").textContent=done+"/"+total;$("elapsed").textContent=fmt(elapsed);
+  if(done>0){
+    const rate=done/elapsed, rem=(total-done)/rate;
+    $("eta").textContent="ETA: "+fmt(rem);$("remain").textContent=fmt(rem);$("speed").textContent=rate.toFixed(2)+" مقطع/ث";
+  }
+}
+function resetProgress(){ $("bar").style.width="0%";$("pct").textContent="0%";$("done").textContent="0/0";$("elapsed").textContent="00:00";$("remain").textContent="—";$("eta").textContent="ETA: —";$("speed").textContent="سرعة: —"; }
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+function checkStop(){if(stopped)throw new Error("تم الإيقاف");}
+
+drop.onclick=()=>fileInput.click();
+fileInput.onchange=e=>setFile(e.target.files[0]);
+drop.ondragover=e=>{e.preventDefault();drop.classList.add("drag")};
+drop.ondragleave=()=>drop.classList.remove("drag");
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("drag");setFile(e.dataTransfer.files[0])};
+
+function setFile(f){
+  if(!f)return;if(!f.type.startsWith("video/")&&!f.type.startsWith("audio/"))return alert("اختر فيديو أو ملف صوت.");
+  file=f; if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(f);video.src=url;video.load();$("fname").textContent=f.name+" — "+(f.size/1048576).toFixed(1)+" MB";log("تم تحميل الملف: "+f.name);
+}
+$("stopBtn").onclick=()=>{stopped=true;try{video.pause()}catch{};log("إيقاف مطلوب...","warn")};
+
+async function loadModels(){
+  const device=$("device").value;
+  const common={device, dtype:"q8", progress_callback:p=>{
+    if(p?.status==="progress"&&Number.isFinite(p.progress)){setStage("تنزيل/تحميل نموذج: "+p.file+" "+p.progress.toFixed(0)+"%")}
+  }};
+  setStage("تحميل Whisper...");
+  if(!asr) asr=await pipeline("automatic-speech-recognition","onnx-community/whisper-tiny",{...common});
+  setStage("تحميل NLLB...");
+  if(!translator)translator=await pipeline("translation","Xenova/nllb-200-distilled-600M",{...common});
+  const tm=TTS_MODELS[$("tgt").value];
+  setStage("تحميل TTS: "+NAMES[$("tgt").value]+"...");
+  if(!tts || tts.__model!==tm){
+    tts=await pipeline("text-to-speech",tm,{...common});
+    tts.__model=tm;
+  }
+}
+
+async function decode16k(){
+  const ab=await file.arrayBuffer();checkStop();
+  const ac=new AudioContext();const decoded=await ac.decodeAudioData(ab);await ac.close();
+  const target=16000,n=Math.ceil(decoded.duration*target);
+  const off=new OfflineAudioContext(1,n,target), src=off.createBufferSource();
+  src.buffer=decoded;src.connect(off.destination);src.start();
+  return await off.startRendering();
+}
+
+function chunksFromASR(out){
+  const arr=(out.chunks||[]).filter(c=>c.timestamp&&c.timestamp[0]!=null);
+  if(arr.length)return arr.map((c,i)=>({i,start:Math.max(0,c.timestamp[0]||0),end:(c.timestamp[1]??(c.timestamp[0]||0)+3),text:c.text.trim()})).filter(x=>x.text);
+  return [{i:0,start:0,end:video.duration||10,text:out.text.trim()}];
+}
+
+async function transcribe(wave){
+  checkStop();
+  const sec=Number($("chunk").value);
+  setStage("تحويل الكلام إلى نص...");
+  const out=await asr(wave,{return_timestamps:true,chunk_length_s:sec,stride_length_s:Math.min(4,sec/4),language:$("src").value.split("_")[0]});
+  return chunksFromASR(out);
+}
+
+async function translateText(text){
+  if($("src").value===$("tgt").value)return text;
+  const r=await translator(text,{src_lang:$("src").value,tgt_lang:$("tgt").value});
+  return r[0]?.translation_text||text;
+}
+
+function fitAudio(input, sr, targetSec){
+  const maxSec=Math.max(.08,targetSec);
+  const inSec=input.length/sr;
+  const outN=Math.max(1,Math.round(maxSec*48000));
+  const off=new OfflineAudioContext(1,outN,48000);
+  const buf=off.createBuffer(1,input.length,sr);buf.copyToChannel(input,0);
+  const src=off.createBufferSource();src.buffer=buf;
+  src.playbackRate.value=Math.max(.5,Math.min(2.8,inSec/maxSec));
+  src.connect(off.destination);src.start();
+  return off.startRendering();
+}
+async function concatPlace(segments,duration){
+  const sr=48000,n=Math.ceil(duration*sr),off=new OfflineAudioContext(1,n,sr);
+  for(const s of segments){
+    checkStop();
+    const buf=off.createBuffer(1,s.audio.length,sr);buf.copyToChannel(s.audio,0);
+    const src=off.createBufferSource();src.buffer=buf;src.connect(off.destination);
+    src.start(Math.max(0,s.start));
+  }
+  return await off.startRendering();
+}
+function audioBufferToBlob(buf){
+  const sr=buf.sampleRate,ch=buf.numberOfChannels,len=buf.length;
+  const ab=new ArrayBuffer(44+len*2),v=new DataView(ab);
+  const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};
+  w(0,"RIFF");v.setUint32(4,36+len*2,true);w(8,"WAVE");w(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,ch,true);v.setUint32(24,sr,true);v.setUint32(28,sr*ch*2,true);v.setUint16(32,ch*2,true);v.setUint16(34,16,true);w(36,"data");v.setUint32(40,len*2,true);
+  let o=44;for(let i=0;i<len;i++){let x=Math.max(-1,Math.min(1,buf.getChannelData(0)[i]));v.setInt16(o,x<0?x*32768:x*32767,true);o+=2}
+  return new Blob([ab],{type:"audio/wav"});
+}
+
+async function makeDubbedVideo(dubBlob){
+  if(!video.captureStream && !video.mozCaptureStream)throw new Error("هذا المتصفح لا يدعم captureStream؛ جرّب Chrome حديثًا.");
+  const ac=new AudioContext(), dest=ac.createMediaStreamDestination(), gain=ac.createGain();gain.gain.value=1;gain.connect(dest);
+  const ab=await dubBlob.arrayBuffer(), decoded=await ac.decodeAudioData(ab);
+  const src=ac.createBufferSource();src.buffer=decoded;src.connect(gain);
+  const vs=(video.captureStream||video.mozCaptureStream).call(video);
+  const out=new MediaStream();
+  vs.getVideoTracks().forEach(t=>out.addTrack(t));
+  dest.stream.getAudioTracks().forEach(t=>out.addTrack(t));
+  const types=["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4"];
+  const mime=types.find(MediaRecorder.isTypeSupported)||"video/webm";
+  const rec=new MediaRecorder(out,{mimeType:mime,videoBitsPerSecond:2500000,audioBitsPerSecond:128000});
+  const parts=[];rec.ondataavailable=e=>e.data.size&&parts.push(e.data);
+  const done=new Promise((resolve,reject)=>{rec.onstop=()=>resolve(new Blob(parts,{type:mime}));rec.onerror=e=>reject(e.error||e)});
+  video.muted=true;video.currentTime=0;
+  await video.play();src.start(0);
+  rec.start(1000);
+  await new Promise(resolve=>video.onended=resolve);
+  rec.stop();const blob=await done;
+  try{src.stop()}catch{};await ac.close();vs.getTracks().forEach(t=>t.stop());
+  video.muted=false;
+  return {blob,mime};
+}
+
+$("fullBtn").onclick=async()=>{
+  if(!file)return alert("اختر فيديو أولًا.");
+  stopped=false;$("stopBtn").disabled=false;$("fullBtn").disabled=true;$("liveBtn").disabled=true;resetProgress();$("download").style.display="none";
+  const start=performance.now();
+  try{
+    await loadModels();checkStop();
+    const wave=await decode16k();log("تم استخراج الصوت: "+fmt(wave.length/16000));
+    const segs=await transcribe(wave);log("تم التعرف على "+segs.length+" مقطع.");
+    const results=[];const total=segs.length;
+    for(let i=0;i<segs.length;i++){
+      checkStop();const s=segs[i];setStage("ترجمة ودبلجة "+(i+1)+"/"+total);
+      const tr=await translateText(s.text);
+      const out=await tts(tr);
+      const target=Math.max(.12,s.end-s.start);
+      const fit=await fitAudio(out.audio,out.sampling_rate,target);
+      results.push({start:s.start,audio:fit.getChannelData(0).slice()});
+      setProgress(i+1,total,start);
+      log("["+fmt(s.start)+"–"+fmt(s.end)+"] "+s.text+" → "+tr);
+    }
+    setStage("تركيب المسار الصوتي...");
+    const duration=video.duration||wave.length/16000;
+    const mixed=await concatPlace(results,duration);
+    dubbedAudioURL=URL.createObjectURL(audioBufferToBlob(mixed));
+    setStage("تسجيل الفيديو المدبلج...");
+    const {blob,mime}=await makeDubbedVideo(await (await fetch(dubbedAudioURL)).blob());
+    const outURL=URL.createObjectURL(blob);
+    $("download").href=outURL;$("download").download=(file.name.replace(/\.[^.]+$/,"")||"video")+".webm";$("download").style.display="block";
+    setStage("اكتمل");$("bar").style.width="100%";$("pct").textContent="100%";$("eta").textContent="ETA: 00:00";$("remain").textContent="00:00";log("اكتمل الإخراج: "+mime,"ok");
+  }catch(e){console.error(e);setStage("خطأ");log(e?.message||String(e),"bad");alert("حدث خطأ: "+(e?.message||e))}
+  finally{$("stopBtn").disabled=true;$("fullBtn").disabled=false;$("liveBtn").disabled=false}
+};
+
+// ---------- LIVE DUBBING ----------
+async function setupLiveAudio(){
+  audioCtx=new AudioContext();await audioCtx.resume();
+  liveSource=audioCtx.createMediaElementSource(video);
+  liveGain=audioCtx.createGain();liveGain.gain.value=0;
+  liveProcessor=audioCtx.createScriptProcessor(4096,1,1);
+  liveSource.connect(liveProcessor);liveProcessor.connect(audioCtx.destination); // processor must be connected
+  liveProcessor.onaudioprocess=e=>{
+    if(!liveSampleRate)liveSampleRate=audioCtx.sampleRate;
+    const x=e.inputBuffer.getChannelData(0);liveBuffer.push(new Float32Array(x));
+    const samples=liveBuffer.reduce((a,b)=>a+b.length,0);
+    if(samples>=liveSampleRate*3.5&&!liveBusy)processLiveChunk();
+  };
+}
+function flattenLive(){
+  const n=liveBuffer.reduce((a,b)=>a+b.length,0),o=new Float32Array(n);let p=0;
+  for(const b of liveBuffer){o.set(b,p);p+=b.length}liveBuffer=[];return o;
+}
+async function processLiveChunk(){
+  if(liveBusy||stopped)return;liveBusy=true;
+  try{
+    const raw=flattenLive(),sr=liveSampleRate;
+    const off=new OfflineAudioContext(1,Math.ceil(raw.length*16000/sr),16000),b=off.createBuffer(1,raw.length,sr);b.copyToChannel(raw,0);
+    const bs=off.createBufferSource();bs.buffer=b;bs.connect(off.destination);bs.start();const w=(await off.startRendering()).getChannelData(0);
+    const out=await asr(w,{return_timestamps:true,chunk_length_s:4,stride_length_s:1});
+    const parts=chunksFromASR(out);
+    for(const p of parts){
+      if(!p.text)continue;const tr=await translateText(p.text);const speech=await tts(tr);
+      const audio=new AudioBuffer({length:speech.audio.length,sampleRate:speech.sampling_rate,numberOfChannels:1});
+      audio.copyToChannel(speech.audio,0);const s=audioCtx.createBufferSource();s.buffer=audio;s.connect(audioCtx.destination);
+      const now=audioCtx.currentTime+.03;s.start(now);
+      log("LIVE: "+p.text+" → "+tr,"ok");
+    }
+  }catch(e){log("LIVE error: "+(e?.message||e),"bad")}finally{liveBusy=false}
+}
+$("liveBtn").onclick=async()=>{
+  if(!file)return alert("اختر فيديو أولًا.");
+  stopped=false;$("stopBtn").disabled=false;$("fullBtn").disabled=true;$("liveBtn").disabled=true;resetProgress();
+  try{
+    await loadModels();await setupLiveAudio();
+    video.muted=true;video.currentTime=0;liveBuffer=[];liveSampleRate=audioCtx.sampleRate;
+    setStage("الدبلجة اللحظية تعمل");log("تشغيل الدبلجة اللحظية...","ok");await video.play();
+  }catch(e){log(e?.message||e,"bad");alert("فشل الوضع اللحظي: "+(e?.message||e));}
+  finally{$("fullBtn").disabled=false;$("liveBtn").disabled=false}
+};
+$("stopBtn").addEventListener("click",async()=>{
+  stopped=true;
+  try{if(video)video.pause();video.muted=false}catch{}
+  try{liveProcessor?.disconnect();liveSource?.disconnect();await audioCtx?.close()}catch{}
+  liveProcessor=null;liveSource=null;audioCtx=null;liveBusy=false;setStage("متوقف");$("stopBtn").disabled=true;$("fullBtn").disabled=false;$("liveBtn").disabled=false;
+});
+
+video.addEventListener("loadedmetadata",()=>log("مدة الفيديو: "+fmt(video.duration)));
+log("جاهز. اختر ملفًا ثم ابدأ.");
+</script>
+</body>
+</html>
