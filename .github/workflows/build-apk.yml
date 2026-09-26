@@ -10,14 +10,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
-      - name: Build APK Step
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build APK using Cordova
         run: |
-          echo "Building application..."
+          npm install -g cordova
+          cordova create myApp com.example.dubbing DubbingApp
+          cp index.html myApp/www/index.html
+          cd myApp
+          cordova platform add android
+          cordova build android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-Dubbing-App-APK
+          path: myApp/platforms/android/app/build/outputs/apk/debug/app-debug.apk
